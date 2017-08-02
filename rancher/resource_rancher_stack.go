@@ -53,6 +53,7 @@ func resourceRancherStack() *schema.Resource {
 			"rancher_compose": {
 				Type:             schema.TypeString,
 				Optional:         true,
+				ForceNew:         false,
 				DiffSuppressFunc: suppressComposeDiff,
 			},
 			"environment": {
@@ -85,6 +86,63 @@ func resourceRancherStack() *schema.Resource {
 			"rendered_rancher_compose": {
 				Type:     schema.TypeString,
 				Computed: true,
+			},
+
+			"containers": &schema.Schema{
+				Type:     schema.TypeList,
+				Optional: true,
+				Computed: true,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"name": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							Computed: true,
+						},
+
+						"id": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							Computed: true,
+						},
+						"docker_uuid": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							Computed: true,
+						},
+						"ip": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							Computed: true,
+						},
+						"command": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							Computed: true,
+						},
+						"host_id": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							Computed: true,
+						},
+						"image": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							Computed: true,
+						},
+
+						"memory": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							Computed: true,
+						},
+						"cpu": &schema.Schema{
+							Type:     schema.TypeString,
+							Optional: true,
+							Computed: true,
+						},
+					},
+				},
 			},
 		},
 	}
@@ -135,6 +193,7 @@ func resourceRancherStackRead(d *schema.ResourceData, meta interface{}) error {
 	}
 
 	stack, err := client.Stack.ById(d.Id())
+
 	if err != nil {
 		return err
 	}
@@ -144,6 +203,31 @@ func resourceRancherStackRead(d *schema.ResourceData, meta interface{}) error {
 		d.SetId("")
 		return nil
 	}
+
+	containerRes := []map[string]interface{}{}
+
+	opts := rancherClient.NewListOpts()
+	opts.Filters["stackId"] = d.Id()
+	serviceCollection, err := client.Service.List(opts)
+	for _, svr := range serviceCollection.Data {
+		for _, id := range svr.InstanceIds {
+			c, _ := client.Container.ById(id)
+			v := map[string]interface{}{
+				"name":        c.Name,
+				"id":          c.Id,
+				"docker_uuid": c.ExternalId,
+				"ip":          c.PrimaryIpAddress,
+				"command":     strings.Join(c.Command, ","),
+				"host_id":     c.HostId,
+				"image":       c.ImageUuid,
+				"memory":      fmt.Sprintf("%v", c.Memory),
+				"cpu":         fmt.Sprintf("%v", float64(c.CpuQuota)/1000000),
+			}
+			containerRes = append(containerRes, v)
+		}
+	}
+
+	d.Set("containers", containerRes)
 
 	if removed(stack.State) {
 		log.Printf("[INFO] Stack %s was removed on %v", d.Id(), stack.Removed)
